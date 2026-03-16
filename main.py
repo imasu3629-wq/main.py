@@ -31,7 +31,11 @@ tree = app_commands.CommandTree(bot)
 
 @bot.event
 async def on_ready():
-    await tree.sync()
+    try:
+        synced = await tree.sync()
+        print(f"✅ {len(synced)}個のコマンドを同期しました")
+    except Exception as e:
+        print(f"❌ 同期エラー: {e}")
     print(f'✅ Logged in as {bot.user.name}')
 
 @tree.command(name="stats", description="HypixelのBedwars戦績を表示します")
