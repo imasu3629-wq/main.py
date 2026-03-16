@@ -5,11 +5,10 @@ import os
 from flask import Flask
 from threading import Thread
 
-# --- Koyeb/Render 24時間稼働用設定 ---
+# --- 24時間稼働設定 ---
 app = Flask('')
 @app.route('/')
-def home():
-    return "Bot is alive!"
+def home(): return "Bot is alive!"
 
 def run():
     port = int(os.environ.get("PORT", 8080))
@@ -18,9 +17,8 @@ def run():
 def keep_alive():
     t = Thread(target=run)
     t.start()
-# ----------------------------------
 
-# 環境変数の読み込み
+# --- 環境変数 ---
 TOKEN = os.environ['DISCORD_TOKEN']
 current_api_key = os.environ['HYPIXEL_KEY']
 AUTHORIZED_USERS = [1278574483195559977]
@@ -38,40 +36,30 @@ async def on_ready():
         print(f"❌ 同期エラー: {e}")
     print(f'✅ Logged in as {bot.user.name}')
 
-@tree.command(name="stats", description="HypixelのBedwars戦績を表示します")
-async def stats(interaction: discord.Interaction, mcid: str):
+# --- [NEW] スキン表示コマンド ---
+@tree.command(name="skin", description="指定したMCIDのスキン画像を表示・配布します")
+async def skin(interaction: discord.Interaction, mcid: str):
     await interaction.response.defer()
     try:
         u_res = requests.get(f"https://api.mojang.com/users/profiles/minecraft/{mcid}")
         if u_res.status_code != 200:
-            await interaction.followup.send("❌ プレイヤーが見つかりませんでした。")
+            await interaction.followup.send("❌ プレイヤーが見つかりません。")
             return
         uuid = u_res.json()['id']
-        h_url = f"https://api.hypixel.net/v2/player?key={current_api_key}&uuid={uuid}"
-        data = requests.get(h_url).json()
+        
+        # 3Dレンダリングと、配布用（展開図）のURL
+        render_url = f"https://visage.surgeplay.com/full/384/{uuid}.png"
+        raw_skin_url = f"https://visage.surgeplay.com/skin/{uuid}.png"
 
-        if data.get("success") and data.get("player"):
-            p = data["player"]
-            bw = p.get("stats", {}).get("Bedwars", {})
-            star = p.get("achievements", {}).get("bedwars_level", 0)
-            fk = bw.get("final_kills_bedwars", 0)
-            fd = bw.get("final_deaths_bedwars", 1)
-            fkdr = round(fk / fd, 2)
-
-            if fkdr < 3: impression = "伸び代あり"
-            elif fkdr < 10: impression = "割とつよい"
-            else: impression = "最強クラス"
-
-            embed = discord.Embed(title=f"{mcid} の戦績", color=0x00ff00)
-            embed.add_field(name="⭐ Star", value=str(star), inline=True)
-            embed.add_field(name="⚔️ FKDR", value=f"**{fkdr}**", inline=True)
-            embed.add_field(name="💬 感想", value=impression, inline=True)
-            await interaction.followup.send(embed=embed)
-        else:
-            await interaction.followup.send("❌ データの取得に失敗しました。")
+        embed = discord.Embed(title=f"👕 {mcid} のスキン", color=0x9b59b6)
+        embed.set_image(url=render_url)
+        embed.add_field(name="📥 配布用データ（展開図）", value=f"[この画像を保存してマイクラに適用]({raw_skin_url})", inline=False)
+        embed.set_footer(text="画像を保存して公式サイトのスキン設定からアップロードしてください")
+        await interaction.followup.send(embed=embed)
     except Exception as e:
         await interaction.followup.send(f"⚠️ エラー: {e}")
 
+# --- [UPDATE] 履歴表示コマンド (最強API版) ---
 @tree.command(name="history", description="MCIDの変更履歴をすべて表示します")
 async def history(interaction: discord.Interaction, mcid: str):
     await interaction.response.defer()
@@ -79,50 +67,74 @@ async def history(interaction: discord.Interaction, mcid: str):
         # 1. UUIDを取得
         u_res = requests.get(f"https://api.mojang.com/users/profiles/minecraft/{mcid}")
         if u_res.status_code != 200:
-            await interaction.followup.send("❌ プレイヤーが見つかりませんでした。")
+            await interaction.followup.send("❌ プレイヤーが見つかりません。")
             return
         uuid = u_res.json()['id']
 
-        # 2. 名前履歴を取得
-        h_res = requests.get(f"https://api.ashcon.app/mojang/v2/user/{uuid}")
+        # 2. 履歴取得 (LabyMod API: 非常に履歴に強く、日付データも正確です)
+        h_res = requests.get(f"https://laby.net/api/v3/user/{uuid}/profile")
         data = h_res.json()
 
-        if "username_history" in data:
-            history_list = data["username_history"]
-            embed = discord.Embed(
-                title=f"📜 {mcid} のID変更履歴", 
-                description=f"UUID: `{uuid}`",
-                color=0x3498db
-            )
-            
+        # 履歴データの抽出
+        history_data = data.get("username_history", [])
+        
+        if history_data:
+            embed = discord.Embed(title=f"📜 {mcid} のID変更履歴", color=0x3498db)
             lines = []
-            # reversed() を使って新しい順に表示
-            for entry in reversed(history_list):
+            # 新しい順に並び替え
+            for entry in reversed(history_data):
                 name = entry['username']
-                if 'changed_at' in entry:
-                    # 日付を読みやすく整形
-                    date = entry['changed_at'][:10].replace("-", "/")
+                changed_at = entry.get('changed_at')
+                
+                if changed_at:
+                    # LabyMod APIの日付形式を読みやすく(YYYY/MM/DD)
+                    date = changed_at[:10].replace("-", "/")
                     lines.append(f"📅 `{date}` ➔ **{name}**")
                 else:
                     lines.append(f"🌱 `最初のID` ➔ **{name}**")
             
-            # 履歴をまとめて表示
-            embed.add_field(name="変更日 ➔ 名前", value="\n".join(lines), inline=False)
+            embed.description = "\n".join(lines)
             await interaction.followup.send(embed=embed)
         else:
-            await interaction.followup.send("❌ 履歴が見つかりませんでした。")
+            # 履歴がない（今の名前だけ）場合
+            await interaction.followup.send(f"ℹ️ {mcid} の名前変更履歴は見つかりませんでした（変更していないか、データがありません）。")
     except Exception as e:
-        await interaction.followup.send(f"⚠️ エラーが発生しました: {e}")
+        await interaction.followup.send(f"⚠️ エラーが発生しました。")
 
+# --- 戦績表示コマンド ---
+@tree.command(name="stats", description="HypixelのBedwars戦績を表示します")
+async def stats(interaction: discord.Interaction, mcid: str):
+    await interaction.response.defer()
+    try:
+        u_res = requests.get(f"https://api.mojang.com/users/profiles/minecraft/{mcid}")
+        uuid = u_res.json()['id']
+        h_url = f"https://api.hypixel.net/v2/player?key={current_api_key}&uuid={uuid}"
+        data = requests.get(h_url).json()
+        if data.get("player"):
+            p = data["player"]
+            bw = p.get("stats", {}).get("Bedwars", {})
+            star = p.get("achievements", {}).get("bedwars_level", 0)
+            fk = bw.get("final_kills_bedwars", 0)
+            fd = bw.get("final_deaths_bedwars", 1)
+            fkdr = round(fk / fd, 2)
+            embed = discord.Embed(title=f"{mcid} の戦績", color=0x00ff00)
+            embed.add_field(name="⭐ Star", value=str(star), inline=True)
+            embed.add_field(name="⚔️ FKDR", value=f"**{fkdr}**", inline=True)
+            await interaction.followup.send(embed=embed)
+        else:
+            await interaction.followup.send("❌ データがありません。")
+    except:
+        await interaction.followup.send("⚠️ エラー")
+
+# --- 管理用コマンド ---
 @tree.command(name="setkey", description="APIキーを更新（管理者専用）")
 async def setkey(interaction: discord.Interaction, new_key: str):
     global current_api_key
     if interaction.user.id not in AUTHORIZED_USERS:
-        await interaction.response.send_message("❌ 権限がありません。", ephemeral=True)
+        await interaction.response.send_message("❌ 権限なし", ephemeral=True)
         return
     current_api_key = new_key
     await interaction.response.send_message("✅ 更新完了", ephemeral=True)
 
-# サーバー起動とBot起動
 keep_alive()
 bot.run(TOKEN)
