@@ -12,7 +12,6 @@ def home():
     return "Bot is alive!"
 
 def run():
-    # ポート番号は環境変数から取得（なければ8080）
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
@@ -29,10 +28,6 @@ AUTHORIZED_USERS = [1278574483195559977]
 intents = discord.Intents.default()
 bot = discord.Client(intents=intents)
 tree = app_commands.CommandTree(bot)
-
-# カラー設定（以前のコードを継承）
-BOLD = "\033[1m"
-RESET = "\033[0m"
 
 @bot.event
 async def on_ready():
@@ -59,7 +54,6 @@ async def stats(interaction: discord.Interaction, mcid: str):
             fd = bw.get("final_deaths_bedwars", 1)
             fkdr = round(fk / fd, 2)
 
-            # 簡易感想システム
             if fkdr < 3: impression = "伸び代あり"
             elif fkdr < 10: impression = "割とつよい"
             else: impression = "最強クラス"
@@ -73,45 +67,36 @@ async def stats(interaction: discord.Interaction, mcid: str):
             await interaction.followup.send("❌ データの取得に失敗しました。")
     except Exception as e:
         await interaction.followup.send(f"⚠️ エラー: {e}")
-        @tree.command(name="history", description="MCIDの変更履歴を確認します")
+
+@tree.command(name="history", description="MCIDの変更履歴を確認します")
 async def history(interaction: discord.Interaction, mcid: str):
     await interaction.response.defer()
     try:
-        # まずUUIDを取得
         u_res = requests.get(f"https://api.mojang.com/users/profiles/minecraft/{mcid}")
         if u_res.status_code != 200:
             await interaction.followup.send("❌ プレイヤーが見つかりませんでした。")
             return
         uuid = u_res.json()['id']
-
-        # 名前履歴を取得 (Mojang API)
-        # 注: APIの仕様変更により、現在はサードパーティのAshcon等を使うのが一般的です
         h_res = requests.get(f"https://api.ashcon.app/mojang/v2/user/{uuid}")
         data = h_res.json()
 
         if "username_history" in data:
             history_list = data["username_history"]
             embed = discord.Embed(title=f"{mcid} の名前変更履歴", color=0x3498db)
-            
             description = ""
-            for entry in reversed(history_list): # 新しい順に表示
+            for entry in reversed(history_list):
                 name = entry['username']
-                # 日付がある場合（初回以外の名前）
                 if 'changed_at' in entry:
-                    # 日付を読みやすい形式にカット
                     date = entry['changed_at'][:10].replace("-", "/")
                     description += f"• **{name}** ({date})\n"
                 else:
                     description += f"• **{name}** (最初のID)\n"
-            
             embed.description = description
             await interaction.followup.send(embed=embed)
         else:
             await interaction.followup.send("❌ 履歴が見つかりませんでした。")
-
     except Exception as e:
         await interaction.followup.send(f"⚠️ エラーが発生しました: {e}")
-
 
 @tree.command(name="setkey", description="APIキーを更新（管理者専用）")
 async def setkey(interaction: discord.Interaction, new_key: str):
