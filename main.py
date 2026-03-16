@@ -36,8 +36,8 @@ async def on_ready():
         print(f"❌ 同期エラー: {e}")
     print(f'✅ Logged in as {bot.user.name}')
 
-# --- [NEW] スキン表示コマンド ---
-@tree.command(name="skin", description="指定したMCIDのスキン画像を表示・配布します")
+# --- スキン表示 ---
+@tree.command(name="skin", description="指定したMCIDのスキン画像を表示します")
 async def skin(interaction: discord.Interaction, mcid: str):
     await interaction.response.defer()
     try:
@@ -46,88 +46,89 @@ async def skin(interaction: discord.Interaction, mcid: str):
             await interaction.followup.send("❌ プレイヤーが見つかりません。")
             return
         uuid = u_res.json()['id']
-        
-        # 3Dレンダリングと、配布用（展開図）のURL
         render_url = f"https://visage.surgeplay.com/full/384/{uuid}.png"
         raw_skin_url = f"https://visage.surgeplay.com/skin/{uuid}.png"
-
         embed = discord.Embed(title=f"👕 {mcid} のスキン", color=0x9b59b6)
         embed.set_image(url=render_url)
-        embed.add_field(name="📥 配布用データ（展開図）", value=f"[この画像を保存してマイクラに適用]({raw_skin_url})", inline=False)
-        embed.set_footer(text="画像を保存して公式サイトのスキン設定からアップロードしてください")
+        embed.add_field(name="📥 配布用データ", value=f"[この画像を保存して適用]({raw_skin_url})", inline=False)
         await interaction.followup.send(embed=embed)
-    except Exception as e:
-        await interaction.followup.send(f"⚠️ エラー: {e}")
+    except:
+        await interaction.followup.send("⚠️ スキン取得エラー")
 
-# --- [UPDATE] 履歴表示コマンド (最強API版) ---
-@tree.command(name="history", description="MCIDの変更履歴をすべて表示します")
+# --- [改良版] 履歴表示 (Laby.net API v3 直結) ---
+@tree.command(name="history", description="Laby.netから最新の変更履歴をすべて取得します")
 async def history(interaction: discord.Interaction, mcid: str):
     await interaction.response.defer()
     try:
-        # 1. UUIDを取得
+        # 1. まずUUIDを取得
         u_res = requests.get(f"https://api.mojang.com/users/profiles/minecraft/{mcid}")
         if u_res.status_code != 200:
             await interaction.followup.send("❌ プレイヤーが見つかりません。")
             return
         uuid = u_res.json()['id']
 
-        # 2. 履歴取得 (LabyMod API: 非常に履歴に強く、日付データも正確です)
-        h_res = requests.get(f"https://laby.net/api/v3/user/{uuid}/profile")
-        data = h_res.json()
-
-        # 履歴データの抽出
-        history_data = data.get("username_history", [])
+        # 2. Laby.net API v3 から直接データを取得
+        # User-Agentを設定しないと拒否されることがあるため追加
+        headers = {"User-Agent": "Mozilla/5.0"}
+        h_res = requests.get(f"https://laby.net/api/v3/user/{uuid}/profile", headers=headers)
         
+        if h_res.status_code != 200:
+            await interaction.followup.send("❌ Laby.netからデータを取得できませんでした。")
+            return
+
+        data = h_res.json()
+        # Laby.netの構造に合わせて正確に抽出
+        history_data = data.get("username_history", [])
+
         if history_data:
             embed = discord.Embed(title=f"📜 {mcid} のID変更履歴", color=0x3498db)
             lines = []
-            # 新しい順に並び替え
+            # LabyModのデータ形式に合わせて処理
             for entry in reversed(history_data):
-                name = entry['username']
-                changed_at = entry.get('changed_at')
+                name = entry.get('username')
+                changed_at = entry.get('changed_at') # 例: "2024-03-15 12:00:00"
                 
                 if changed_at:
-                    # LabyMod APIの日付形式を読みやすく(YYYY/MM/DD)
                     date = changed_at[:10].replace("-", "/")
                     lines.append(f"📅 `{date}` ➔ **{name}**")
                 else:
                     lines.append(f"🌱 `最初のID` ➔ **{name}**")
             
             embed.description = "\n".join(lines)
+            embed.set_footer(text="Data provided by Laby.net")
             await interaction.followup.send(embed=embed)
         else:
-            # 履歴がない（今の名前だけ）場合
-            await interaction.followup.send(f"ℹ️ {mcid} の名前変更履歴は見つかりませんでした（変更していないか、データがありません）。")
+            await interaction.followup.send(f"ℹ️ {mcid} の履歴データが空でした。")
     except Exception as e:
-        await interaction.followup.send(f"⚠️ エラーが発生しました。")
+        await interaction.followup.send(f"⚠️ 履歴取得中にエラーが発生しました。")
 
-# --- 戦績表示コマンド ---
-@tree.command(name="stats", description="HypixelのBedwars戦績を表示します")
+# --- 戦績表示 ---
+@tree.command(name="stats", description="Hypixelの戦績を表示します")
 async def stats(interaction: discord.Interaction, mcid: str):
     await interaction.response.defer()
     try:
         u_res = requests.get(f"https://api.mojang.com/users/profiles/minecraft/{mcid}")
         uuid = u_res.json()['id']
         h_url = f"https://api.hypixel.net/v2/player?key={current_api_key}&uuid={uuid}"
-        data = requests.get(h_url).json()
-        if data.get("player"):
-            p = data["player"]
+        res = requests.get(h_url).json()
+        if res.get("player"):
+            p = res["player"]
             bw = p.get("stats", {}).get("Bedwars", {})
             star = p.get("achievements", {}).get("bedwars_level", 0)
             fk = bw.get("final_kills_bedwars", 0)
             fd = bw.get("final_deaths_bedwars", 1)
-            fkdr = round(fk / fd, 2)
+            fkdr = round(fk / max(fd, 1), 2)
             embed = discord.Embed(title=f"{mcid} の戦績", color=0x00ff00)
             embed.add_field(name="⭐ Star", value=str(star), inline=True)
-            embed.add_field(name="⚔️ FKDR", value=f"**{fkdr}**", inline=True)
+            embed.add_field(name="⚔️ FKDR", value=str(fkdr), inline=True)
             await interaction.followup.send(embed=embed)
         else:
-            await interaction.followup.send("❌ データがありません。")
+            await interaction.followup.send("❌ データなし")
     except:
         await interaction.followup.send("⚠️ エラー")
 
-# --- 管理用コマンド ---
-@tree.command(name="setkey", description="APIキーを更新（管理者専用）")
+# --- 管理用 ---
+@tree.command(name="setkey", description="APIキーを更新")
 async def setkey(interaction: discord.Interaction, new_key: str):
     global current_api_key
     if interaction.user.id not in AUTHORIZED_USERS:
