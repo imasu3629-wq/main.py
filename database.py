@@ -1,6 +1,7 @@
 import sqlite3
 
-DB_PATH = "bot_data.db"
+import os
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bot_data.db")
 
 def get_conn():
     conn = sqlite3.connect(DB_PATH)
@@ -103,3 +104,12 @@ def get_ranking_by_star(limit=10):
             ORDER BY star DESC
             LIMIT ?
         """, (limit,)).fetchall()
+
+# --- 削除 ---
+def delete_player(discord_id: str, uuid: str) -> bool:
+    with get_conn() as conn:
+        cursor = conn.execute(
+            "DELETE FROM registrations WHERE discord_id = ? AND uuid = ?",
+            (str(discord_id), uuid)
+        )
+        return cursor.rowcount > 0
