@@ -280,6 +280,8 @@ async def stats(interaction: discord.Interaction, mcid: str):
             await interaction.followup.send("❌ Hypixelにデータがありません。")
             return
         comment = fkdr_comment(fkdr)
+        if mcid.lower() == "haru_12m":
+            comment = "ハルはdefやろ"
         if mcid.lower() == "youmouop":
             rank_label = "[YOUMOU]"
         display_name = f"{rank_label} {mcid}" if rank_label else mcid
