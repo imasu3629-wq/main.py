@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
 import requests
+from bs4 import BeautifulSoup
 import os
 from flask import Flask
 from threading import Thread
@@ -227,6 +228,23 @@ async def ranking(interaction: discord.Interaction):
 
 
 # --- /stats（既存・UUID対応に改良） ---
+def fkdr_comment(fkdr: float) -> str:
+    if fkdr >= 2000:
+        return "YAJUandU114514!!"
+    elif fkdr >= 1000:
+        return "強すぎィィィいくくぅぅ"
+    elif fkdr >= 100:
+        return "強いねぇぇ(泣)"
+    elif fkdr >= 10:
+        return "なかなかやる"
+    elif fkdr >= 4:
+        return "割と強い"
+    elif fkdr >= 2:
+        return "普通レベル"
+    else:
+        return "初心者だろう"
+
+
 @tree.command(name="stats", description="Hypixelの戦績を表示します")
 async def stats(interaction: discord.Interaction, mcid: str):
     await interaction.response.defer()
@@ -239,9 +257,10 @@ async def stats(interaction: discord.Interaction, mcid: str):
         if star is None:
             await interaction.followup.send("❌ Hypixelにデータがありません。")
             return
+        comment = fkdr_comment(fkdr)
         embed = discord.Embed(title=f"{mcid} の戦績", color=0x00ff00)
         embed.add_field(name="⭐ Star", value=str(star), inline=True)
-        embed.add_field(name="⚔️ FKDR", value=str(fkdr), inline=True)
+        embed.add_field(name="⚔️ FKDR", value=f"{fkdr}  |  {comment}", inline=True)
         await interaction.followup.send(embed=embed)
     except Exception as e:
         await interaction.followup.send(f"⚠️ エラー: {e}")
@@ -266,8 +285,27 @@ async def skin(interaction: discord.Interaction, mcid: str):
         await interaction.followup.send("⚠️ スキン取得エラー")
 
 
-# --- /history（既存） ---
-@tree.command(name="history", description="Laby.netから最新の変更履歴をすべて取得します")
+# --- NameMC スクレイピングヘルパー ---
+def fetch_namemc_history(uuid: str):
+    url = f"https://namemc.com/profile/{uuid}"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    res = requests.get(url, headers=headers)
+    if res.status_code != 200:
+        return []
+    soup = BeautifulSoup(res.text, "html.parser")
+    rows = soup.select("table#name-history tbody tr")
+    history = []
+    for row in rows:
+        cols = row.select("td")
+        if len(cols) >= 1:
+            name = cols[0].get_text(strip=True)
+            date = cols[1].get_text(strip=True) if len(cols) > 1 else "最初のID"
+            history.append({"username": name, "changed_at": date})
+    return history
+
+
+# --- /history（NameMC版） ---
+@tree.command(name="history", description="MCIDの変更履歴を表示します")
 async def history(interaction: discord.Interaction, mcid: str):
     await interaction.response.defer()
     try:
@@ -275,32 +313,24 @@ async def history(interaction: discord.Interaction, mcid: str):
         if not uuid:
             await interaction.followup.send("❌ プレイヤーが見つかりません。")
             return
-        headers = {"User-Agent": "Mozilla/5.0"}
-        h_res = requests.get(f"https://laby.net/api/v3/user/{uuid}/profile", headers=headers)
-        if h_res.status_code != 200:
-            await interaction.followup.send("❌ Laby.netからデータを取得できませんでした。")
-            return
-        data = h_res.json()
-        history_data = data.get("username_history", [])
+        history_data = fetch_namemc_history(uuid)
         if history_data:
             embed = discord.Embed(title=f"📜 {mcid} のID変更履歴", color=0x3498db)
             lines = []
-            for entry in reversed(history_data):
-                name = entry.get('username')
-                changed_at = entry.get('changed_at')
-                if changed_at:
-                    date = changed_at[:10].replace("-", "/")
+            for entry in history_data:
+                name = entry["username"]
+                date = entry["changed_at"]
+                if date and date != "最初のID":
                     lines.append(f"📅 `{date}` ➔ **{name}**")
                 else:
                     lines.append(f"🌱 `最初のID` ➔ **{name}**")
             embed.description = "\n".join(lines)
-            embed.set_footer(text="Data provided by Laby.net")
+            embed.set_footer(text="Data provided by NameMC")
             await interaction.followup.send(embed=embed)
         else:
-            await interaction.followup.send(f"ℹ️ {mcid} の履歴データが空でした。")
-    except:
+            await interaction.followup.send(f"ℹ️ {mcid} の履歴データが見つかりませんでした。")
+    except Exception as e:
         await interaction.followup.send("⚠️ 履歴取得中にエラーが発生しました。")
-
 
 # --- /setkey（既存） ---
 @tree.command(name="setkey", description="APIキーを更新")
