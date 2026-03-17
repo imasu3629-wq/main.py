@@ -48,19 +48,40 @@ def fetch_uuid(mcid: str):
     return uuid
 
 
+# --- Hypixel ランク取得ヘルパー ---
+def get_rank(player_data):
+    if not player_data:
+        return ""
+    # 1. スタッフランク
+    rank = player_data.get("rank")
+    if rank and rank != "NORMAL":
+        return f"[{rank}]"
+    # 2. MVP++ (monthlyPackageRank)
+    monthly_rank = player_data.get("monthlyPackageRank")
+    if monthly_rank and monthly_rank != "NONE":
+        return "[MVP++]" if monthly_rank == "SUPERSTAR" else f"[{monthly_rank}]"
+    # 3. 一般寄付ランク (newPackageRank)
+    package_rank = player_data.get("newPackageRank")
+    if package_rank and package_rank != "NONE":
+        label = package_rank.replace("_PLUS", "+")
+        return f"[{label}]"
+    return ""
+
+
 # --- Hypixel stats取得ヘルパー ---
 def fetch_hypixel_stats(uuid: str):
     url = f"https://api.hypixel.net/v2/player?key={current_api_key}&uuid={uuid}"
     res = requests.get(url).json()
     if not res.get("player"):
-        return None, None
+        return None, None, None
     p = res["player"]
     bw = p.get("stats", {}).get("Bedwars", {})
     star = p.get("achievements", {}).get("bedwars_level", 0)
     fk = bw.get("final_kills_bedwars", 0)
     fd = bw.get("final_deaths_bedwars", 1)
     fkdr = round(fk / max(fd, 1), 2)
-    return star, fkdr
+    rank_label = get_rank(p)
+    return star, fkdr, rank_label
 
 
 # --- ランキング選択View（最初に表示） ---
@@ -253,12 +274,13 @@ async def stats(interaction: discord.Interaction, mcid: str):
         if not uuid:
             await interaction.followup.send("❌ プレイヤーが見つかりません。")
             return
-        star, fkdr = fetch_hypixel_stats(uuid)
+        star, fkdr, rank_label = fetch_hypixel_stats(uuid)
         if star is None:
             await interaction.followup.send("❌ Hypixelにデータがありません。")
             return
         comment = fkdr_comment(fkdr)
-        embed = discord.Embed(title=f"{mcid} の戦績", color=0x00ff00)
+        display_name = f"{rank_label} {mcid}" if rank_label else mcid
+        embed = discord.Embed(title=f"{display_name} の戦績", color=0x00ff00)
         embed.add_field(name="⭐ Star", value=str(star), inline=True)
         embed.add_field(name="⚔️ FKDR", value=f"{fkdr}  |  {comment}", inline=True)
         await interaction.followup.send(embed=embed)
